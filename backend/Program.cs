@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Options;
+using RateAlerts.Api.Alerts;
 using RateAlerts.Api.Rates;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,6 +43,9 @@ builder.Services.AddTransient<IRateProvider>(provider => new CachingRateProvider
     provider.GetRequiredService<RateCache>(),
     provider.GetRequiredService<TimeProvider>(),
     provider.GetRequiredService<IOptions<XecdOptions>>()));
+
+builder.Services.AddSingleton<IAlertStore, InMemoryAlertStore>();
+builder.Services.AddTransient<IAlertService, AlertService>();
 
 var app = builder.Build();
 
