@@ -1,52 +1,51 @@
-import { render } from '@testing-library/vue'
-import { mount } from '@vue/test-utils'
-import { vi, test, expect } from 'vitest'
-
-const fakeState = vi.hoisted(() => ({
-  rates: [
-    { pair: 'USD/CAD', rate: 1.3 },
-    { pair: 'GBP/USD', rate: 1.25 },
-    { pair: 'EUR/USD', rate: 1.1 },
-  ] as any[],
-  lastUpdated: '',
-}))
-vi.mock('./state', () => ({ state: fakeState }))
-
+import { render, waitFor } from '@testing-library/vue'
+import { expect, test, vi } from 'vitest'
 import App from './App.vue'
 
-test('shows the cards and pokes state', async () => {
-  const fetchSpy = vi.fn(() =>
-    Promise.resolve({ json: () => Promise.resolve([{ pair: 'USD/CAD', rate: 9.9 }]) }),
+test('loads rates and alerts on mount and shows them', async () => {
+  const fetchMock = vi.fn((url: string) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve(
+          url === '/api/rates'
+            ? [
+                { pair: 'USD/CAD', rate: 1.365, asOf: '2026-01-15T09:30:00Z' },
+                { pair: 'GBP/USD', rate: 1.271, asOf: '2026-01-15T09:30:00Z' },
+              ]
+            : [
+                {
+                  id: 'a1',
+                  pair: 'USD/CAD',
+                  threshold: 1.3,
+                  direction: 'above',
+                  triggered: true,
+                  currentRate: 1.365,
+                  triggeredRate: 1.365,
+                  triggeredAt: '2026-01-15T09:30:00Z',
+                },
+              ],
+        ),
+    } as Response),
   )
-  ;(globalThis as any).fetch = fetchSpy
+  vi.stubGlobal('fetch', fetchMock)
 
   const { getByText, container } = render(App)
 
+  await waitFor(() => expect(container.querySelectorAll('.card')).toHaveLength(2))
+  expect(getByText('1.3650')).toBeTruthy()
   expect(getByText('USD / CAD')).toBeTruthy()
-  expect(getByText('1.3000')).toBeTruthy()
+  expect(getByText('Triggered')).toBeTruthy()
+  const requested = fetchMock.mock.calls.map(([url]) => url)
+  expect(requested).toContain('/api/rates')
+  expect(requested).toContain('/api/alerts')
+})
 
-  fakeState.rates[1].rate = 1.2599
-  await Promise.resolve()
-  const rates = container.querySelectorAll('.rate')
+test('a backend that is down is reported, not swallowed', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))))
 
-  expect(getByText('GBP / USD')).toBeTruthy()
-  expect(getByText('EUR / USD')).toBeTruthy()
-  expect(getByText('1.1000')).toBeTruthy()
-  expect(fetchSpy).toHaveBeenCalledWith('/api/rates')
-  expect(rates.length).toBe(3)
+  const { findByRole } = render(App)
 
-  await new Promise((r) => setTimeout(r, 0))
-  expect(fakeState.rates).toEqual([{ pair: 'USD/CAD', rate: 9.9 }])
-  expect(fakeState.lastUpdated).not.toBe('')
-
-  fakeState.lastUpdated = ''
-  const fetchSpy2 = vi.fn(() =>
-    Promise.resolve({ json: () => Promise.resolve([{ pair: 'GBP/USD', rate: 7.7 }]) }),
-  )
-  ;(globalThis as any).fetch = fetchSpy2
-  const wrapper = mount(App)
-  ;(wrapper.vm as any).loadRates()
-  await new Promise((r) => setTimeout(r, 0))
-  expect(fakeState.rates).toEqual([{ pair: 'GBP/USD', rate: 7.7 }])
-  expect(fakeState.lastUpdated).not.toBe('')
+  expect(await findByRole('alert')).toBeTruthy()
 })
