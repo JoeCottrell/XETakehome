@@ -22,6 +22,36 @@ public class InMemoryAlertStoreTests
     }
 
     [Fact]
+    public async Task Alerts_created_in_the_same_tick_keep_the_order_they_were_added_in()
+    {
+        var first = TestData.Alert(createdAt: TestData.Now);
+        var second = TestData.Alert(createdAt: TestData.Now);
+        var third = TestData.Alert(createdAt: TestData.Now);
+
+        await _store.AddAsync(first, default);
+        await _store.AddAsync(second, default);
+        await _store.AddAsync(third, default);
+
+        var listed = await _store.ListAsync(default);
+
+        Assert.Equal([first.Id, second.Id, third.Id], listed.Select(alert => alert.Id));
+    }
+
+    [Fact]
+    public async Task A_replaced_alert_keeps_its_place_in_the_list()
+    {
+        var first = TestData.Alert(createdAt: TestData.Now);
+        var second = TestData.Alert(createdAt: TestData.Now);
+        await _store.AddAsync(first, default);
+        await _store.AddAsync(second, default);
+
+        await _store.TryReplaceAsync(first, first with { TriggeredAt = TestData.Now }, default);
+
+        var listed = await _store.ListAsync(default);
+        Assert.Equal([first.Id, second.Id], listed.Select(alert => alert.Id));
+    }
+
+    [Fact]
     public async Task Finds_and_deletes_by_id()
     {
         var alert = TestData.Alert();

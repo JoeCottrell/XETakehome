@@ -106,7 +106,7 @@ does not need a store library, and it can be added back deliberately if that cha
 
 ## Tests
 
-`dotnet test RateAlerts.sln` (63 tests) and `npm test` in `frontend/` (16). Both also run in CI on
+`dotnet test RateAlerts.sln` (65 tests) and `npm test` in `frontend/` (16). Both also run in CI on
 every push, which is the "going further" option I picked - tests nobody runs stop being true.
 
 They go where a bug would be expensive or silent: the threshold rule including the boundary and the

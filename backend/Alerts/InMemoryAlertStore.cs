@@ -14,30 +14,45 @@ namespace RateAlerts.Api.Alerts;
 /// </remarks>
 public sealed class InMemoryAlertStore : IAlertStore
 {
-    private readonly ConcurrentDictionary<Guid, Alert> _alerts = new();
+    private readonly ConcurrentDictionary<Guid, Entry> _alerts = new();
+    private long _sequence;
 
     public Task<IReadOnlyList<Alert>> ListAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<Alert> alerts = _alerts.Values
-            .OrderBy(alert => alert.CreatedAt)
-            .ThenBy(alert => alert.Id)
+            .OrderBy(entry => entry.Alert.CreatedAt)
+            // Two alerts created in the same tick would otherwise come back in whatever order the
+            // dictionary felt like, and the list would reshuffle between refreshes.
+            .ThenBy(entry => entry.Sequence)
+            .Select(entry => entry.Alert)
             .ToList();
 
         return Task.FromResult(alerts);
     }
 
     public Task<Alert?> FindAsync(Guid id, CancellationToken cancellationToken) =>
-        Task.FromResult(_alerts.TryGetValue(id, out var alert) ? alert : null);
+        Task.FromResult(_alerts.TryGetValue(id, out var entry) ? entry.Alert : null);
 
     public Task AddAsync(Alert alert, CancellationToken cancellationToken)
     {
-        _alerts[alert.Id] = alert;
+        _alerts[alert.Id] = new Entry(alert, Interlocked.Increment(ref _sequence));
         return Task.CompletedTask;
     }
 
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
         Task.FromResult(_alerts.TryRemove(id, out _));
 
-    public Task<bool> TryReplaceAsync(Alert previous, Alert updated, CancellationToken cancellationToken) =>
-        Task.FromResult(_alerts.TryUpdate(updated.Id, updated, previous));
+    public Task<bool> TryReplaceAsync(Alert previous, Alert updated, CancellationToken cancellationToken)
+    {
+        if (!_alerts.TryGetValue(updated.Id, out var entry) || entry.Alert != previous)
+        {
+            return Task.FromResult(false);
+        }
+
+        // Compare-and-swap on the entry we just read: a concurrent replace or delete loses nothing
+        // and reports false, and the alert keeps its place in the list.
+        return Task.FromResult(_alerts.TryUpdate(updated.Id, entry with { Alert = updated }, entry));
+    }
+
+    private sealed record Entry(Alert Alert, long Sequence);
 }
